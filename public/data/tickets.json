@@ -1,0 +1,24 @@
+{
+  "tickets": [
+    {
+      "key": "CHK-2311",
+      "title": "Shipping coupon applied twice in checkout totals",
+      "status": "Done",
+      "type": "Bug",
+      "priority": "High",
+      "reportedBy": "Support",
+      "context": [
+        "Customers reported confusing coupon totals where the shipping discount appears twice.",
+        "The issue reproduces when the checkout recalculates totals after changing shipping method."
+      ],
+      "acceptanceCriteria": [
+        "A shipping coupon adjustment is applied at most once per checkout session.",
+        "Displayed totals match the authorized payment intent amount.",
+        "Regression test exists for the reproduction scenario."
+      ],
+      "openQuestions": [
+        "Should shipping discounts reduce cobbler payout, or is payout calculated from pre-discount shipping revenue?"
+      ]
+    }
+  ]
+}

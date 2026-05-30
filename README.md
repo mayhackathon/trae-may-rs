@@ -113,11 +113,31 @@ UI:
 ## How MCP Could Be Added Next (After The App Works)
 
 This repo now includes a local MCP server so TRAE (or any MCP-capable client) can call the app as tools:
-- `generate_ship_brief`
-- `get_latest_brief`
-- `get_support_note`
-- `get_marketing_summary`
-- `get_audit_report`
+
+### Hybrid Architecture
+The MCP server now exposes two sets of tools, demonstrating a dual-architecture:
+
+1. **App-Generated Workflows:** (The App acts as the generator)
+   - `generate_ship_brief`
+   - `get_latest_brief`
+   - `get_support_note`
+   - `get_marketing_summary`
+   - `get_audit_report`
+   - `what_shipped_this_week`
+
+2. **Agent-Generated Workflows:** (TRAE acts as the generator, using raw data)
+   - `get_raw_git_history`
+   - `get_raw_prs`
+   - `get_raw_tickets`
+   - `get_raw_support_notes`
+
+3. **Agent-Executed Actions:** (TRAE acts as the workflow executor)
+   - `approve_brief`
+   - `post_to_slack`
+
+This allows you to demo both scenarios:
+- **Scenario A:** "TRAE, use the `what_shipped_this_week` tool to tell me what the app generated."
+- **Scenario B:** "TRAE, fetch the raw PRs and Support Notes, write a custom summary, and then use `post_to_slack` to send it to the #support channel."
 
 The MCP layer is a thin wrapper that calls the running Ship Brief app on `http://localhost:3000`.
 

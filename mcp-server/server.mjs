@@ -115,6 +115,93 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
+        name: "get_raw_git_history",
+        description: "Return the raw git history for the latest release (mock data).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            baseUrl: {
+              type: "string",
+              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
+            },
+          },
+        },
+      },
+      {
+        name: "get_raw_prs",
+        description: "Return the raw pull request summaries for the latest release (mock data).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            baseUrl: {
+              type: "string",
+              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
+            },
+          },
+        },
+      },
+      {
+        name: "get_raw_tickets",
+        description: "Return the raw ticket context for the latest release (mock data).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            baseUrl: {
+              type: "string",
+              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
+            },
+          },
+        },
+      },
+      {
+        name: "get_raw_support_notes",
+        description: "Return the raw support notes for the latest release (mock data).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            baseUrl: {
+              type: "string",
+              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
+            },
+          },
+        },
+      },
+      {
+        name: "approve_brief",
+        description: "Mark the latest generated brief as approved. (Mock workflow action)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            baseUrl: {
+              type: "string",
+              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
+            },
+          },
+        },
+      },
+      {
+        name: "post_to_slack",
+        description: "Post a specific brief section to Slack. (Mock workflow action)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            baseUrl: {
+              type: "string",
+              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
+            },
+            channel: {
+              type: "string",
+              description: "The Slack channel to post to (e.g., #engineering, #support).",
+            },
+            content: {
+              type: "string",
+              description: "The content to post to Slack.",
+            },
+          },
+          required: ["channel", "content"],
+        },
+      },
+      {
         name: "generate_ship_brief",
         description: "Generate a ship brief from the latest sources and store it as the latest brief.",
         inputSchema: {
@@ -204,6 +291,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const appUrl = `${baseUrl.replace(/\/$/, "")}/`;
 
   switch (request.params.name) {
+    case "get_raw_git_history": {
+      const result = await requestJson("GET", `${baseUrl.replace(/\/$/, "")}/data/git-history.json`);
+      return toolText(JSON.stringify(result, null, 2));
+    }
+    case "get_raw_prs": {
+      const result = await requestJson("GET", `${baseUrl.replace(/\/$/, "")}/data/prs.json`);
+      return toolText(JSON.stringify(result, null, 2));
+    }
+    case "get_raw_tickets": {
+      const result = await requestJson("GET", `${baseUrl.replace(/\/$/, "")}/data/tickets.json`);
+      return toolText(JSON.stringify(result, null, 2));
+    }
+    case "get_raw_support_notes": {
+      const result = await requestJson("GET", `${baseUrl.replace(/\/$/, "")}/data/support-notes.json`);
+      return toolText(JSON.stringify(result, null, 2));
+    }
+    case "approve_brief": {
+      return toolText("Successfully marked the latest brief as approved.");
+    }
+    case "post_to_slack": {
+      return toolText(`Successfully posted to Slack channel ${args.channel}.\n\nContent preview:\n${args.content.substring(0, 100)}...`);
+    }
     case "generate_ship_brief": {
       const result = await requestJson("POST", endpoint, {});
       return toolText(formatFullBriefResponse(result, appUrl));
