@@ -7,10 +7,7 @@ async function main() {
   const transport = new StdioClientTransport({
     command: "node",
     args: ["mcp-server/server.mjs"],
-    env: {
-      ...process.env,
-      SHIP_BRIEF_BASE_URL: process.env.SHIP_BRIEF_BASE_URL ?? "http://localhost:3000",
-    },
+    env: { ...process.env },
   });
 
   await client.connect(transport);
@@ -18,11 +15,31 @@ async function main() {
   const tools = await client.listTools();
   process.stdout.write(`Tools: ${tools.tools.map((t) => t.name).join(", ")}\n`);
 
-  await client.callTool({ name: "generate_ship_brief", arguments: {} });
-  process.stdout.write(`generate_ship_brief ok\n`);
+  const prompts = await client.listPrompts();
+  process.stdout.write(`Prompts: ${prompts.prompts.map((p) => p.name).join(", ")}\n`);
 
-  const support = await client.callTool({ name: "get_support_note", arguments: {} });
-  process.stdout.write(`get_support_note ok\n`);
+  const git = await client.callTool({ name: "get_raw_git_activity", arguments: { days: 7 } });
+  process.stdout.write(`get_raw_git_activity ok\n`);
+
+  const fixture = {
+    generatedAt: new Date().toISOString(),
+    range: { type: "lastDays", days: 7 },
+    sources: {
+      git: { summary: "Fixture run", raw: String(git.content?.[0]?.text ?? "") },
+      prs: { summary: "None", raw: "" },
+      tickets: { summary: "None", raw: "" },
+      supportNotes: { summary: "None", raw: "" },
+    },
+    brief: {
+      engineering: "Engineering changelog\n\n- Fixture brief",
+      pmMarketing: "PM and Marketing brief\n\n- Fixture brief",
+      support: "Support-facing note\n\n- Fixture brief",
+      audit: "Audit and uncertainty report\n\nSources used\n- Fixture",
+    },
+  };
+
+  await client.callTool({ name: "save_latest_brief", arguments: fixture });
+  process.stdout.write(`save_latest_brief ok\n`);
 
   const latest = await client.callTool({ name: "get_latest_brief", arguments: {} });
   process.stdout.write(`get_latest_brief ok\n`);
@@ -30,11 +47,8 @@ async function main() {
   const shipped = await client.callTool({ name: "what_shipped_this_week", arguments: {} });
   process.stdout.write(`what_shipped_this_week ok\n`);
 
-  process.stdout.write("\nSupport note preview:\n");
-  process.stdout.write(String(support.content?.[0]?.text ?? "") + "\n");
-
-  process.stdout.write("\nLatest brief payload keys:\n");
-  process.stdout.write(String(latest.content?.[0]?.text ?? "").slice(0, 200) + "\n");
+  process.stdout.write("\nLatest brief preview:\n");
+  process.stdout.write(String(latest.content?.[0]?.text ?? "").slice(0, 400) + "\n");
 
   process.stdout.write("\nWhat shipped this week preview:\n");
   process.stdout.write(String(shipped.content?.[0]?.text ?? "").slice(0, 400) + "\n");

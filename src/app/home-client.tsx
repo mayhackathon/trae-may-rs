@@ -80,24 +80,6 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
     setLastGeneratedAt(json.generatedAt);
   }
 
-  async function onGenerate() {
-    setIsGenerating(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/generate-brief", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) throw new Error(`Request failed (${res.status})`);
-      await applyBriefResponse(res);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
-    } finally {
-      setIsGenerating(false);
-    }
-  }
-
   async function onGetLatest() {
     setIsGenerating(true);
     setError(null);
@@ -145,8 +127,7 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
       <header className="flex flex-col gap-3">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-950">TRAE Ship Brief</h1>
         <p className="max-w-3xl text-base leading-7 text-zinc-600">
-          Generate role-specific release communication from engineering source material: git history,
-          PR summaries, ticket context, and support notes.
+          View and copy the latest role-specific release communication generated via TRAE.
         </p>
       </header>
 
@@ -158,7 +139,7 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
           >
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-zinc-900">{card.title}</h2>
-              <span className="text-xs text-zinc-500">Mock JSON</span>
+              <span className="text-xs text-zinc-500">Snapshot</span>
             </div>
             <ul className="mt-3 space-y-1 text-sm text-zinc-700">
               {card.lines.map((l) => (
@@ -174,19 +155,11 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <button
               type="button"
-              onClick={onGenerate}
+              onClick={onGetLatest}
               disabled={isGenerating}
               className="inline-flex items-center justify-center rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
             >
-              {isGenerating ? "Generating..." : "Generate Ship Brief"}
-            </button>
-            <button
-              type="button"
-              onClick={onGetLatest}
-              disabled={isGenerating}
-              className="inline-flex items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-900 disabled:opacity-60"
-            >
-              Get Latest Brief
+              {isGenerating ? "Loading..." : "Get Latest Brief"}
             </button>
           </div>
           <div className="flex flex-col items-start gap-1 sm:items-end">
@@ -232,7 +205,7 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
               </pre>
             ) : (
               <p className="text-sm text-zinc-500">
-                Click Generate Ship Brief to produce role-specific outputs.
+                Generate the brief via TRAE, then click Get Latest Brief.
               </p>
             )}
           </div>

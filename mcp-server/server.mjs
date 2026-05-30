@@ -1,34 +1,91 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
-const DEFAULT_BASE_URL = process.env.SHIP_BRIEF_BASE_URL ?? "http://localhost:3000";
-
-async function requestJson(method, url, body) {
-  const res = await fetch(url, {
-    method,
-    headers: body ? { "content-type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  const text = await res.text();
-  let json;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    throw new Error(`Non-JSON response from Ship Brief API (${res.status}).`);
-  }
-
-  if (!res.ok) {
-    const message = json?.error ? String(json.error) : `Request failed (${res.status}).`;
-    throw new Error(message);
-  }
-
-  return json;
-}
+const execFileAsync = promisify(execFile);
+const repoRoot = process.cwd();
+const latestBriefPath = path.join(repoRoot, "data", "latest-brief.json");
 
 function toolText(text) {
   return { content: [{ type: "text", text }] };
+}
+
+async function readLatestBrief() {
+  try {
+    const raw = await readFile(latestBriefPath, "utf-8");
+    return JSON.parse(raw);
+  } catch (e) {
+    const code = e && typeof e === "object" && "code" in e ? e.code : undefined;
+    if (code === "ENOENT") return null;
+    throw e;
+  }
+}
+
+async function writeLatestBriefAtomic(payload) {
+  await mkdir(path.dirname(latestBriefPath), { recursive: true });
+  const tmpPath = `${latestBriefPath}.tmp-${process.pid}-${Date.now()}`;
+  await writeFile(tmpPath, JSON.stringify(payload, null, 2) + "\n", "utf-8");
+  await rename(tmpPath, latestBriefPath);
+}
+
+async function deleteLatestBrief() {
+  try {
+    await unlink(latestBriefPath);
+    return true;
+  } catch (e) {
+    const code = e && typeof e === "object" && "code" in e ? e.code : undefined;
+    if (code === "ENOENT") return false;
+    throw e;
+  }
+}
+
+function toInt(value, fallback) {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function clampInt(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+async function getRawGitActivity({ days }) {
+  const safeDays = clampInt(toInt(days, 7), 1, 30);
+  const to = new Date();
+  const from = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
+
+  const args = [
+    "log",
+    `--since=${from.toISOString()}`,
+    "--max-count=200",
+    "--date=iso-strict",
+    "--pretty=format:%H%x09%an%x09%ad%x09%s",
+  ];
+
+  const { stdout } = await execFileAsync("git", args, { cwd: repoRoot, maxBuffer: 1024 * 1024 * 10 });
+  const lines = String(stdout).split("\n").filter(Boolean);
+  const commits = lines.map((line) => {
+    const [hash, author, date, subject] = line.split("\t");
+    return { hash, author, date, subject };
+  });
+
+  return {
+    range: { type: "lastDays", days: safeDays, from: from.toISOString(), to: to.toISOString() },
+    commits,
+    raw: String(stdout).trim(),
+  };
 }
 
 function firstNonEmptyLine(text) {
@@ -76,108 +133,109 @@ function formatTldr(brief) {
   return out.join("\n");
 }
 
-function formatFullBriefResponse(payload, appUrl) {
-  const { generatedAt, brief } = payload;
+function buildShipBriefPromptText(days) {
   return [
-    "TRAE Ship Brief",
-    `Generated at: ${generatedAt}`,
-    "Sources: local mock JSON (git history, PR summary, ticket context, support notes)",
+    "You are generating a role-specific Ship Brief for a software release.",
     "",
-    formatTldr(brief),
+    "Goal",
+    "- Produce four sections: Engineering changelog, PM/Marketing brief, Support note, Audit report.",
+    "- Do not invent claims. Every factual claim must be supported by sources you include.",
     "",
-    "Review and copy in the Ship Brief app:",
-    appUrl,
+    "Time range",
+    `- Last ${days} days.`,
     "",
-    "Engineering",
-    brief.engineering,
+    "Steps",
+    `1) Call tool get_raw_git_activity with {\"days\": ${days}}.`,
+    "2) Fetch PRs and tickets for the same time range using any other MCP connectors available in your environment (GitHub/GitLab/Jira/Linear/etc). If none are available, ask the user to paste PRs/tickets.",
+    "3) Optionally gather support signals (support notes, Zendesk, Slack escalations) if connectors exist; otherwise leave empty.",
+    "4) Write the brief text with clear headings and bullet lists where appropriate.",
+    "5) Produce an audit section with:",
+    "   - Sources used",
+    "   - Verified claims (supported by sources)",
+    "   - Assumptions",
+    "   - Uncertainties / needs verification",
+    "   - Missing context",
+    "6) Call tool save_latest_brief to persist the result using this JSON shape:",
     "",
-    "PM and Marketing",
-    brief.pmMarketing,
-    "",
-    "Support",
-    brief.support,
-    "",
-    "Audit",
-    brief.audit,
+    "{",
+    '  "generatedAt": "ISO-8601 string",',
+    `  "range": { "type": "lastDays", "days": ${days}, "from": "ISO", "to": "ISO" },`,
+    '  "sources": {',
+    '    "git": { "summary": "string", "raw": "string|object" },',
+    '    "prs": { "summary": "string", "raw": "string|object" },',
+    '    "tickets": { "summary": "string", "raw": "string|object" },',
+    '    "supportNotes": { "summary": "string", "raw": "string|object" }',
+    "  },",
+    '  "brief": {',
+    '    "engineering": "string",',
+    '    "pmMarketing": "string",',
+    '    "support": "string",',
+    '    "audit": "string"',
+    "  }",
+    "}",
   ].join("\n");
 }
 
 const server = new Server(
-  { name: "trae-ship-brief", version: "0.1.0" },
+  { name: "trae-ship-brief", version: "0.2.0" },
   {
     capabilities: {
       tools: {},
+      prompts: {},
     },
   }
 );
+
+server.registerCapabilities({
+  tools: { listChanged: true },
+  prompts: { listChanged: true },
+});
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: "get_raw_git_history",
-        description: "Return the raw git history for the latest release (mock data).",
+        name: "get_raw_git_activity",
+        description: "Return raw git activity for the last N days from the local repository.",
+        inputSchema: { type: "object", properties: { days: { type: "number" } } },
+      },
+      {
+        name: "save_latest_brief",
+        description: "Persist the latest ship brief to data/latest-brief.json.",
         inputSchema: {
           type: "object",
           properties: {
-            baseUrl: {
-              type: "string",
-              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
+            generatedAt: { type: "string" },
+            range: { type: "object" },
+            sources: { type: "object" },
+            brief: {
+              type: "object",
+              properties: {
+                engineering: { type: "string" },
+                pmMarketing: { type: "string" },
+                support: { type: "string" },
+                audit: { type: "string" },
+              },
+              required: ["engineering", "pmMarketing", "support", "audit"],
             },
           },
+          required: ["brief"],
         },
       },
       {
-        name: "get_raw_prs",
-        description: "Return the raw pull request summaries for the latest release (mock data).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            baseUrl: {
-              type: "string",
-              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
-            },
-          },
-        },
+        name: "get_latest_brief",
+        description: "Return the persisted latest ship brief (if one exists).",
+        inputSchema: { type: "object", properties: {} },
       },
       {
-        name: "get_raw_tickets",
-        description: "Return the raw ticket context for the latest release (mock data).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            baseUrl: {
-              type: "string",
-              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
-            },
-          },
-        },
-      },
-      {
-        name: "get_raw_support_notes",
-        description: "Return the raw support notes for the latest release (mock data).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            baseUrl: {
-              type: "string",
-              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
-            },
-          },
-        },
+        name: "delete_latest_brief",
+        description: "Delete data/latest-brief.json if it exists.",
+        inputSchema: { type: "object", properties: {} },
       },
       {
         name: "approve_brief",
         description: "Mark the latest generated brief as approved. (Mock workflow action)",
-        inputSchema: {
-          type: "object",
-          properties: {
-            baseUrl: {
-              type: "string",
-              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
-            },
-          },
-        },
+        inputSchema: { type: "object", properties: {} },
       },
       {
         name: "post_to_slack",
@@ -185,10 +243,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            baseUrl: {
-              type: "string",
-              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
-            },
             channel: {
               type: "string",
               description: "The Slack channel to post to (e.g., #engineering, #support).",
@@ -202,81 +256,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: "generate_ship_brief",
-        description: "Generate a ship brief from the latest sources and store it as the latest brief.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            baseUrl: {
-              type: "string",
-              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
-            },
-          },
-        },
-      },
-      {
-        name: "get_latest_brief",
-        description: "Return the latest generated ship brief (if one exists).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            baseUrl: {
-              type: "string",
-              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
-            },
-          },
-        },
-      },
-      {
-        name: "get_support_note",
-        description: "Return the support-facing note for the latest release brief.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            baseUrl: {
-              type: "string",
-              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
-            },
-          },
-        },
-      },
-      {
-        name: "get_marketing_summary",
-        description: "Return the PM and Marketing brief for the latest release.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            baseUrl: {
-              type: "string",
-              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
-            },
-          },
-        },
-      },
-      {
-        name: "get_audit_report",
-        description: "Return the audit and uncertainty report for the latest release brief.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            baseUrl: {
-              type: "string",
-              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
-            },
-          },
-        },
-      },
-      {
         name: "what_shipped_this_week",
         description:
-          "Return a demo-friendly answer for “What shipped this week?” Retrieves latest brief if present, otherwise generates one.",
+          "Return a demo-friendly answer for “What shipped this week?” Uses the latest saved brief if present.",
         inputSchema: {
           type: "object",
           properties: {
-            baseUrl: {
-              type: "string",
-              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
-            },
+            days: { type: "number" },
           },
         },
       },
@@ -284,28 +270,67 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
+server.setRequestHandler(ListPromptsRequestSchema, async () => {
+  return {
+    prompts: [
+      {
+        name: "ship_brief",
+        description: "Template prompt to generate a ship brief using TRAE + MCP tools (TRAE acts as the generator).",
+        arguments: [
+          {
+            name: "days",
+            description: "Number of days to include (default 7).",
+            required: false,
+          },
+        ],
+      },
+    ],
+  };
+});
+
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  const args = request.params.arguments ?? {};
+  const days = clampInt(toInt(args.days, 7), 1, 30);
+
+  if (request.params.name !== "ship_brief") throw new Error(`Unknown prompt: ${request.params.name}`);
+  return {
+    messages: [
+      {
+        role: "user",
+        content: { type: "text", text: buildShipBriefPromptText(days) },
+      },
+    ],
+  };
+});
+
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const args = request.params.arguments ?? {};
-  const baseUrl = typeof args.baseUrl === "string" ? args.baseUrl : DEFAULT_BASE_URL;
-  const endpoint = `${baseUrl.replace(/\/$/, "")}/api/generate-brief`;
-  const appUrl = `${baseUrl.replace(/\/$/, "")}/`;
 
   switch (request.params.name) {
-    case "get_raw_git_history": {
-      const result = await requestJson("GET", `${baseUrl.replace(/\/$/, "")}/data/git-history.json`);
+    case "get_raw_git_activity": {
+      const result = await getRawGitActivity({ days: args.days });
       return toolText(JSON.stringify(result, null, 2));
     }
-    case "get_raw_prs": {
-      const result = await requestJson("GET", `${baseUrl.replace(/\/$/, "")}/data/prs.json`);
-      return toolText(JSON.stringify(result, null, 2));
+    case "save_latest_brief": {
+      const generatedAt = typeof args.generatedAt === "string" ? args.generatedAt : new Date().toISOString();
+      const brief = args.brief;
+      const payload = {
+        generatedAt,
+        range: typeof args.range === "object" && args.range ? args.range : undefined,
+        sources: typeof args.sources === "object" && args.sources ? args.sources : undefined,
+        brief,
+      };
+      await writeLatestBriefAtomic(payload);
+      return toolText(JSON.stringify(payload, null, 2));
     }
-    case "get_raw_tickets": {
-      const result = await requestJson("GET", `${baseUrl.replace(/\/$/, "")}/data/tickets.json`);
-      return toolText(JSON.stringify(result, null, 2));
+    case "get_latest_brief": {
+      const latest = await readLatestBrief();
+      if (!latest) return toolText("No latest brief saved yet.");
+      return toolText(JSON.stringify(latest, null, 2));
     }
-    case "get_raw_support_notes": {
-      const result = await requestJson("GET", `${baseUrl.replace(/\/$/, "")}/data/support-notes.json`);
-      return toolText(JSON.stringify(result, null, 2));
+    case "delete_latest_brief": {
+      const deleted = await deleteLatestBrief();
+      return toolText(deleted ? "Deleted data/latest-brief.json." : "No latest brief file to delete.");
     }
     case "approve_brief": {
       return toolText("Successfully marked the latest brief as approved.");
@@ -313,81 +338,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     case "post_to_slack": {
       return toolText(`Successfully posted to Slack channel ${args.channel}.\n\nContent preview:\n${args.content.substring(0, 100)}...`);
     }
-    case "generate_ship_brief": {
-      const result = await requestJson("POST", endpoint, {});
-      return toolText(formatFullBriefResponse(result, appUrl));
-    }
-    case "get_latest_brief": {
-      const result = await requestJson("GET", endpoint);
-      return toolText(
-        [
-          "TRAE Ship Brief (latest)",
-          `Generated at: ${result.generatedAt}`,
-          "Sources: local mock JSON",
-          "",
-          formatTldr(result.brief),
-          "",
-          "Review and copy in the Ship Brief app:",
-          appUrl,
-        ].join("\n")
-      );
-    }
-    case "get_support_note": {
-      const result = await requestJson("GET", endpoint);
-      return toolText(
-        ["Source: Ship Brief (mock data)", "", result.brief.support, "", "Review and copy:", appUrl].join(
-          "\n"
-        )
-      );
-    }
-    case "get_marketing_summary": {
-      const result = await requestJson("GET", endpoint);
-      return toolText(
-        [
-          "Source: Ship Brief (mock data)",
-          "",
-          result.brief.pmMarketing,
-          "",
-          "Review and copy:",
-          appUrl,
-        ].join("\n")
-      );
-    }
-    case "get_audit_report": {
-      const result = await requestJson("GET", endpoint);
-      return toolText(
-        ["Source: Ship Brief (mock data)", "", result.brief.audit, "", "Review and copy:", appUrl].join(
-          "\n"
-        )
-      );
-    }
     case "what_shipped_this_week": {
-      try {
-        const latest = await requestJson("GET", endpoint);
+      const latest = await readLatestBrief();
+      if (latest?.brief) {
         return toolText(
           [
-            "Here’s what shipped this week (latest brief already generated):",
+            "Here’s what shipped this week (from the latest saved brief):",
             "",
             formatTldr(latest.brief),
             "",
-            "Review and copy the full brief:",
-            appUrl,
-          ].join("\n")
-        );
-      } catch (e) {
-        if (!(e instanceof Error) || !String(e.message).includes("No brief generated yet.")) throw e;
-        const generated = await requestJson("POST", endpoint, {});
-        return toolText(
-          [
-            "Here’s what shipped this week (generated now):",
-            "",
-            formatTldr(generated.brief),
-            "",
-            "Review and copy the full brief:",
-            appUrl,
+            "Saved at: data/latest-brief.json",
           ].join("\n")
         );
       }
+      const days = clampInt(toInt(args.days, 7), 1, 30);
+      return toolText(
+        [
+          "No latest brief is saved yet.",
+          "",
+          `Use the ship_brief prompt (days=${days}) to generate one, then call save_latest_brief to persist it.`,
+        ].join("\n")
+      );
     }
     default:
       throw new Error(`Unknown tool: ${request.params.name}`);
@@ -397,7 +368,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(`TRAE Ship Brief MCP server running (base URL: ${DEFAULT_BASE_URL})`);
+  console.error("TRAE Ship Brief MCP server running");
 }
 
 main().catch((err) => {

@@ -2,7 +2,7 @@
 
 TRAE Ship Brief turns engineering changes into role-specific release communication.
 
-It reads engineering source material (mocked locally for the MVP) and generates four outputs:
+It produces four outputs:
 - Engineering changelog
 - PM and Marketing brief
 - Support-facing note
@@ -22,9 +22,11 @@ And TRAE can:
 - Return the right role-specific output for the user (PM, Marketing, Support, Engineering)
 - Surface uncertainty so teams avoid unsupported claims
 
-In this MVP, TRAE integration is represented by a single app API boundary:
-- POST `/api/generate-brief` produces a single “weekly” brief from the mocked sources
-- GET `/api/generate-brief` retrieves the latest generated brief (persisted locally)
+In this repo, TRAE is the generator:
+- TRAE uses an MCP prompt (`ship_brief`) and tools from this repo to gather sources and write the brief.
+- The latest brief is persisted locally to `data/latest-brief.json`.
+- The Next.js app is a viewer that reads the latest saved brief.
+- GET `/api/generate-brief` returns the latest saved brief (or 404 if none exists).
 
 ## Productivity Impact
 
@@ -41,16 +43,25 @@ With TRAE Ship Brief:
 
 ```bash
 npm install
+```
+
+UI viewer (optional):
+```bash
 npm run dev
 ```
 
-Open http://localhost:3000
+MCP server (for TRAE):
+```bash
+npm run mcp
+```
+
+Open http://localhost:3000 to view the latest saved brief.
 
 ## What’s Mocked (No Real Integrations Yet)
 
-This MVP intentionally does not include auth, real OAuth, or real Jira/GitHub APIs.
+This MVP intentionally does not include auth, real OAuth, or embedded Jira/GitHub API tokens.
 
-Mock sources live in `data/`:
+Optional fixture sources live in `data/`:
 - `data/git-history.json`
 - `data/prs.json`
 - `data/tickets.json`
@@ -63,25 +74,29 @@ Current scenario: “Checkout coupon fix”
 - Support had customer complaints about confusing coupon totals
 - There is uncertainty around whether shipping discounts should affect cobbler payout
 
-## What The App Generates
+## What Gets Stored
 
-The generator returns:
+The persisted brief shape includes:
 ```json
 {
-  "engineering": "string",
-  "pmMarketing": "string",
-  "support": "string",
-  "audit": "string"
+  "generatedAt": "string",
+  "range": {},
+  "sources": {},
+  "brief": {
+    "engineering": "string",
+    "pmMarketing": "string",
+    "support": "string",
+    "audit": "string"
+  }
 }
 ```
 
 Key constraint: the generator should not invent unsupported claims.
-- It extracts “safe claims” only from the provided mock sources
-- It flags missing context and uncertainties in the Audit output
+- Every factual claim must be supported by the sources captured in `sources.*`.
+- Uncertainties and missing context must be explicitly listed in the Audit output.
 
 Core logic:
-- `src/lib/generateShipBrief.ts`
-- `src/lib/mockSources.ts`
+- `mcp-server/server.mjs` (tools, prompt template, persistence)
 
 API route:
 - `src/app/api/generate-brief/route.ts`
@@ -101,45 +116,22 @@ UI:
 
 1. Open TRAE
 2. Ask: “What shipped this week?”
-3. TRAE explains or triggers the Ship Brief workflow (calls the Ship Brief generator)
-4. Open the Ship Brief app
-5. Click “Generate Ship Brief”
+3. TRAE uses the `ship_brief` prompt + tools to gather sources and draft the brief
+4. TRAE saves it via `save_latest_brief`
+5. Open the Ship Brief app
+6. Click “Get Latest Brief”
 6. Show Engineering tab (what changed, why, verification notes)
 7. Show PM and Marketing tab (safe claims + claims to avoid)
 8. Show Support tab (what shipped, how to explain, watch-outs)
 9. Show Audit tab (sources used, verified claims, assumptions, uncertainties)
 10. Close with ROI: 30–60 minutes → a few minutes of review, plus fewer unsupported claims
 
-## How MCP Could Be Added Next (After The App Works)
+## MCP Architecture
 
-This repo now includes a local MCP server so TRAE (or any MCP-capable client) can call the app as tools:
-
-### Hybrid Architecture
-The MCP server now exposes two sets of tools, demonstrating a dual-architecture:
-
-1. **App-Generated Workflows:** (The App acts as the generator)
-   - `generate_ship_brief`
-   - `get_latest_brief`
-   - `get_support_note`
-   - `get_marketing_summary`
-   - `get_audit_report`
-   - `what_shipped_this_week`
-
-2. **Agent-Generated Workflows:** (TRAE acts as the generator, using raw data)
-   - `get_raw_git_history`
-   - `get_raw_prs`
-   - `get_raw_tickets`
-   - `get_raw_support_notes`
-
-3. **Agent-Executed Actions:** (TRAE acts as the workflow executor)
-   - `approve_brief`
-   - `post_to_slack`
-
-This allows you to demo both scenarios:
-- **Scenario A:** "TRAE, use the `what_shipped_this_week` tool to tell me what the app generated."
-- **Scenario B:** "TRAE, fetch the raw PRs and Support Notes, write a custom summary, and then use `post_to_slack` to send it to the #support channel."
-
-The MCP layer is a thin wrapper that calls the running Ship Brief app on `http://localhost:3000`.
+This repo includes a local MCP server so TRAE (or any MCP-capable client) can:
+- Fetch local git activity for the last N days (`get_raw_git_activity`)
+- Use a prompt template (`ship_brief`) to orchestrate PR/ticket gathering via other MCP connectors
+- Persist the latest brief (`save_latest_brief`) and retrieve it (`get_latest_brief`)
 
 ### Run MCP Locally
 
@@ -151,11 +143,6 @@ npm run dev
 Terminal 2 (MCP server, stdio):
 ```bash
 npm run mcp
-```
-
-Optional base URL override:
-```bash
-SHIP_BRIEF_BASE_URL=http://localhost:3000 npm run mcp
 ```
 
 ### Connect TRAE To The MCP Server
