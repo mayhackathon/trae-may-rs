@@ -1,0 +1,24 @@
+{
+  "notes": [
+    {
+      "date": "2026-05-27",
+      "channel": "Zendesk",
+      "summary": "Customers see shipping coupon discount listed twice",
+      "details": [
+        "Multiple tickets referencing coupon totals not matching the final charge.",
+        "Common pattern: user applies coupon, changes shipping method, sees discount duplicated."
+      ],
+      "impact": "Confusion and distrust in checkout totals; increased support volume for coupon-related issues."
+    },
+    {
+      "date": "2026-05-28",
+      "channel": "Support Ops",
+      "summary": "Escalation: payout questions when shipping discount applied",
+      "details": [
+        "Support asked whether shipping discounts should affect cobbler payout calculations.",
+        "No definitive policy reference was found in the ticket context."
+      ],
+      "impact": "Potential miscommunication risk if payout behavior is described incorrectly."
+    }
+  ]
+}

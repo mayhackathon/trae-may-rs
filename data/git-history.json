@@ -1,0 +1,35 @@
+{
+  "range": "2026-05-26..2026-05-30",
+  "commits": [
+    {
+      "hash": "a1b2c3d",
+      "date": "2026-05-28",
+      "author": "Alex Chen",
+      "subject": "Fix checkout coupon double-application on shipping lines",
+      "details": [
+        "Ensure shipping coupon is applied at most once per checkout calculation pass",
+        "Guard against duplicate line-item adjustments when recalculating totals"
+      ]
+    },
+    {
+      "hash": "d4e5f6g",
+      "date": "2026-05-28",
+      "author": "Alex Chen",
+      "subject": "Update payment intent amount calculation to use final discounted totals",
+      "details": [
+        "Align payment intent amount with computed order total after discounts",
+        "Reduce mismatch between displayed totals and authorized amount"
+      ]
+    },
+    {
+      "hash": "h7i8j9k",
+      "date": "2026-05-29",
+      "author": "Priya Nair",
+      "subject": "Add regression test: shipping coupon not counted twice",
+      "details": [
+        "Test reproduces double-application bug scenario",
+        "Asserts totals and adjustment count remain stable across recalculation"
+      ]
+    }
+  ]
+}
