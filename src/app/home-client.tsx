@@ -9,6 +9,10 @@ type Brief = {
   audit: string;
 };
 
+type BriefResponse =
+  | { generatedAt: string; brief: Brief }
+  | { error: string };
+
 type SourceSummary = {
   gitHistory: { title: string; lines: string[] };
   prs: { title: string; lines: string[] };
@@ -52,6 +56,7 @@ function prettyTabLabel(key: TabKey): string {
 export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSummary }) {
   const [activeTab, setActiveTab] = useState<TabKey>("engineering");
   const [brief, setBrief] = useState<Brief | null>(null);
+  const [lastGeneratedAt, setLastGeneratedAt] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,6 +73,13 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
     [brief]
   );
 
+  async function applyBriefResponse(res: Response) {
+    const json = (await res.json()) as BriefResponse;
+    if ("error" in json) throw new Error(json.error);
+    setBrief(json.brief);
+    setLastGeneratedAt(json.generatedAt);
+  }
+
   async function onGenerate() {
     setIsGenerating(true);
     setError(null);
@@ -78,8 +90,21 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
         body: JSON.stringify({}),
       });
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
-      const json = (await res.json()) as Brief;
-      setBrief(json);
+      await applyBriefResponse(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unknown error");
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function onGetLatest() {
+    setIsGenerating(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/generate-brief", { method: "GET" });
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      await applyBriefResponse(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -132,15 +157,30 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
 
       <section className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <button
-            type="button"
-            onClick={onGenerate}
-            disabled={isGenerating}
-            className="inline-flex items-center justify-center rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-          >
-            {isGenerating ? "Generating..." : "Generate Ship Brief"}
-          </button>
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={onGenerate}
+              disabled={isGenerating}
+              className="inline-flex items-center justify-center rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {isGenerating ? "Generating..." : "Generate Ship Brief"}
+            </button>
+            <button
+              type="button"
+              onClick={onGetLatest}
+              disabled={isGenerating}
+              className="inline-flex items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-900 disabled:opacity-60"
+            >
+              Get Latest Brief
+            </button>
+          </div>
+          <div className="flex flex-col items-start gap-1 sm:items-end">
+            {lastGeneratedAt ? (
+              <p className="text-xs text-zinc-500">Last generated: {lastGeneratedAt}</p>
+            ) : null}
+            {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          </div>
         </div>
 
         <div className="rounded-xl border border-zinc-200 bg-white">
@@ -233,4 +273,3 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
     </div>
   );
 }
-
