@@ -8,6 +8,7 @@ type StoredBrief = {
     pmMarketing: string;
     support: string;
     audit: string;
+    businessImpact?: string;
   };
 } & Record<string, unknown>;
 

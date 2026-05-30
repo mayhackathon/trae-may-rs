@@ -7,6 +7,7 @@ type Brief = {
   pmMarketing: string;
   support: string;
   audit: string;
+  businessImpact?: string;
 };
 
 type BriefResponse =
@@ -22,7 +23,8 @@ type SourceSummary = {
 
 type TabKey = "engineering" | "pmMarketing" | "support" | "audit";
 
-function extractBulletSection(text: string, heading: string): string[] {
+function extractBulletSection(text: string | undefined | null, heading: string): string[] {
+  if (!text) return [];
   const lines = text.split("\n");
   const startIndex = lines.findIndex((l) => l.trim() === heading);
   if (startIndex === -1) return [];
@@ -96,21 +98,29 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
   }
 
   useEffect(() => {
-    (async () => {
+    let mounted = true;
+    const fetchLatest = async () => {
       try {
         const res = await fetch("/api/generate-brief", { method: "GET" });
         if (res.status === 404) return;
         if (!res.ok) return;
-        await applyBriefResponse(res);
+        if (mounted) await applyBriefResponse(res);
       } catch {
         return;
       }
-    })();
+    };
+    
+    // Initial fetch
+    fetchLatest();
+    
+    // Poll every 3 seconds to update side-by-side during demo
+    const intervalId = setInterval(fetchLatest, 3000);
+    
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+    };
   }, []);
-
-  async function onCopy(text: string) {
-    await navigator.clipboard.writeText(text);
-  }
 
   const sourceCards = [
     sourceSummary.gitHistory,
@@ -127,7 +137,7 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
       <header className="flex flex-col gap-3">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-950">TRAE Ship Brief</h1>
         <p className="max-w-3xl text-base leading-7 text-zinc-600">
-          View and copy the latest role-specific release communication generated via TRAE.
+          View the latest role-specific release communication generated via TRAE.
         </p>
       </header>
 
@@ -153,14 +163,7 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
       <section className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <button
-              type="button"
-              onClick={onGetLatest}
-              disabled={isGenerating}
-              className="inline-flex items-center justify-center rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-            >
-              {isGenerating ? "Loading..." : "Get Latest Brief"}
-            </button>
+            {/* Get Latest Brief button removed */}
           </div>
           <div className="flex flex-col items-start gap-1 sm:items-end">
             {lastGeneratedAt ? (
@@ -189,14 +192,6 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              disabled={!brief}
-              onClick={() => onCopy(activeText)}
-              className="inline-flex items-center justify-center rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 disabled:opacity-50"
-            >
-              Copy {prettyTabLabel(activeTab)}
-            </button>
           </div>
           <div className="p-4">
             {brief ? (
