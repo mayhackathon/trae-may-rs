@@ -111,11 +111,38 @@ UI:
 
 ## How MCP Could Be Added Next (After The App Works)
 
-After the UI + generator are stable, add an MCP server so TRAE can call the app as tools:
+This repo now includes a local MCP server so TRAE (or any MCP-capable client) can call the app as tools:
 - `generate_ship_brief`
 - `get_latest_brief`
 - `get_support_note`
 - `get_marketing_summary`
 - `get_audit_report`
 
-The MCP layer should be a thin wrapper around the existing generator + “latest brief” storage, not a separate implementation.
+The MCP layer is a thin wrapper that calls the running Ship Brief app on `http://localhost:3000`.
+
+### Run MCP Locally
+
+Terminal 1 (app):
+```bash
+npm run dev
+```
+
+Terminal 2 (MCP server, stdio):
+```bash
+npm run mcp
+```
+
+Optional base URL override:
+```bash
+SHIP_BRIEF_BASE_URL=http://localhost:3000 npm run mcp
+```
+
+### Connect TRAE To The MCP Server
+
+In TRAE’s MCP configuration, register a local stdio server that runs:
+- Command: `node`
+- Args: `/absolute/path/to/trae-may-rs/mcp-server/server.mjs`
+
+Or equivalently:
+- Command: `npm`
+- Args: `run`, `mcp`
