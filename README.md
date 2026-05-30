@@ -1,36 +1,121 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TRAE Ship Brief
 
-## Getting Started
+TRAE Ship Brief turns engineering changes into role-specific release communication.
 
-First, run the development server:
+It reads engineering source material (mocked locally for the MVP) and generates four outputs:
+- Engineering changelog
+- PM and Marketing brief
+- Support-facing note
+- Audit and uncertainty report (sources, assumptions, and claims needing verification)
+
+This is a hackathon MVP for the Productivity Enhancement Track.
+
+## Why TRAE Is The Entry Point
+
+Release communication is a cross-functional workflow that starts from engineering truth (commits/PRs/tickets/support signals) and ends with multiple role-specific narratives.
+
+TRAE Ship Brief is designed so a user can ask TRAE:
+- “What shipped this week?”
+
+And TRAE can:
+- Trigger brief generation, or retrieve the latest brief
+- Return the right role-specific output for the user (PM, Marketing, Support, Engineering)
+- Surface uncertainty so teams avoid unsupported claims
+
+In this MVP, TRAE integration is represented by a single app API boundary:
+- POST `/api/generate-brief` produces a single “weekly” brief from the mocked sources
+
+## Productivity Impact
+
+Typical pain:
+- Engineering leads spend 30–60 minutes per release translating technical changes for non-engineering teams.
+
+With TRAE Ship Brief:
+- Reduce this to a few minutes of review by generating first drafts per role.
+- Reduce missed shipped changes by deriving outputs from the same shared sources.
+- Reduce unsupported marketing/support claims by explicitly listing uncertainties and missing context.
+- Improve support readiness after release by generating a support-facing note from support signals + engineering truth.
+
+## How To Run
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## What’s Mocked (No Real Integrations Yet)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+This MVP intentionally does not include auth, real OAuth, or real Jira/GitHub APIs.
 
-## Learn More
+Mock sources live in `data/`:
+- `data/git-history.json`
+- `data/prs.json`
+- `data/tickets.json`
+- `data/support-notes.json`
 
-To learn more about Next.js, take a look at the following resources:
+Current scenario: “Checkout coupon fix”
+- Shipping coupon was being applied twice
+- Payment intent calculation was updated
+- Regression test was added
+- Support had customer complaints about confusing coupon totals
+- There is uncertainty around whether shipping discounts should affect cobbler payout
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## What The App Generates
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The generator returns:
+```json
+{
+  "engineering": "string",
+  "pmMarketing": "string",
+  "support": "string",
+  "audit": "string"
+}
+```
 
-## Deploy on Vercel
+Key constraint: the generator should not invent unsupported claims.
+- It extracts “safe claims” only from the provided mock sources
+- It flags missing context and uncertainties in the Audit output
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Core logic:
+- `src/lib/generateShipBrief.ts`
+- `src/lib/mockSources.ts`
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+API route:
+- `src/app/api/generate-brief/route.ts`
+
+UI:
+- `src/app/page.tsx`
+- `src/app/home-client.tsx`
+
+## Example TRAE Prompts (Demo Narrative)
+
+- “What shipped this week?”
+- “Generate a support note for the latest release.”
+- “Explain the latest engineering changes for PM and marketing.”
+- “What claims should we avoid because the sources do not support them?”
+
+## 2-Minute Demo Script
+
+1. Open TRAE
+2. Ask: “What shipped this week?”
+3. TRAE explains or triggers the Ship Brief workflow (calls the Ship Brief generator)
+4. Open the Ship Brief app
+5. Click “Generate Ship Brief”
+6. Show Engineering tab (what changed, why, verification notes)
+7. Show PM and Marketing tab (safe claims + claims to avoid)
+8. Show Support tab (what shipped, how to explain, watch-outs)
+9. Show Audit tab (sources used, verified claims, assumptions, uncertainties)
+10. Close with ROI: 30–60 minutes → a few minutes of review, plus fewer unsupported claims
+
+## How MCP Could Be Added Next (After The App Works)
+
+After the UI + generator are stable, add an MCP server so TRAE can call the app as tools:
+- `generate_ship_brief`
+- `get_latest_brief`
+- `get_support_note`
+- `get_marketing_summary`
+- `get_audit_report`
+
+The MCP layer should be a thin wrapper around the existing generator + “latest brief” storage, not a separate implementation.
