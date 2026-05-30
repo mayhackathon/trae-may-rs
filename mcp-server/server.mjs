@@ -76,7 +76,7 @@ function formatTldr(brief) {
   return out.join("\n");
 }
 
-function formatFullBriefResponse(payload) {
+function formatFullBriefResponse(payload, appUrl) {
   const { generatedAt, brief } = payload;
   return [
     "TRAE Ship Brief",
@@ -84,6 +84,9 @@ function formatFullBriefResponse(payload) {
     "Sources: local mock JSON (git history, PR summary, ticket context, support notes)",
     "",
     formatTldr(brief),
+    "",
+    "Review and copy in the Ship Brief app:",
+    appUrl,
     "",
     "Engineering",
     brief.engineering,
@@ -198,11 +201,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const args = request.params.arguments ?? {};
   const baseUrl = typeof args.baseUrl === "string" ? args.baseUrl : DEFAULT_BASE_URL;
   const endpoint = `${baseUrl.replace(/\/$/, "")}/api/generate-brief`;
+  const appUrl = `${baseUrl.replace(/\/$/, "")}/`;
 
   switch (request.params.name) {
     case "generate_ship_brief": {
       const result = await requestJson("POST", endpoint, {});
-      return toolText(formatFullBriefResponse(result));
+      return toolText(formatFullBriefResponse(result, appUrl));
     }
     case "get_latest_brief": {
       const result = await requestJson("GET", endpoint);
@@ -213,20 +217,40 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           "Sources: local mock JSON",
           "",
           formatTldr(result.brief),
+          "",
+          "Review and copy in the Ship Brief app:",
+          appUrl,
         ].join("\n")
       );
     }
     case "get_support_note": {
       const result = await requestJson("GET", endpoint);
-      return toolText(["Source: Ship Brief (mock data)", "", result.brief.support].join("\n"));
+      return toolText(
+        ["Source: Ship Brief (mock data)", "", result.brief.support, "", "Review and copy:", appUrl].join(
+          "\n"
+        )
+      );
     }
     case "get_marketing_summary": {
       const result = await requestJson("GET", endpoint);
-      return toolText(["Source: Ship Brief (mock data)", "", result.brief.pmMarketing].join("\n"));
+      return toolText(
+        [
+          "Source: Ship Brief (mock data)",
+          "",
+          result.brief.pmMarketing,
+          "",
+          "Review and copy:",
+          appUrl,
+        ].join("\n")
+      );
     }
     case "get_audit_report": {
       const result = await requestJson("GET", endpoint);
-      return toolText(["Source: Ship Brief (mock data)", "", result.brief.audit].join("\n"));
+      return toolText(
+        ["Source: Ship Brief (mock data)", "", result.brief.audit, "", "Review and copy:", appUrl].join(
+          "\n"
+        )
+      );
     }
     case "what_shipped_this_week": {
       try {
@@ -236,13 +260,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             "Here’s what shipped this week (latest brief already generated):",
             "",
             formatTldr(latest.brief),
+            "",
+            "Review and copy the full brief:",
+            appUrl,
           ].join("\n")
         );
       } catch (e) {
         if (!(e instanceof Error) || !String(e.message).includes("No brief generated yet.")) throw e;
         const generated = await requestJson("POST", endpoint, {});
         return toolText(
-          ["Here’s what shipped this week (generated now):", "", formatTldr(generated.brief)].join("\n")
+          [
+            "Here’s what shipped this week (generated now):",
+            "",
+            formatTldr(generated.brief),
+            "",
+            "Review and copy the full brief:",
+            appUrl,
+          ].join("\n")
         );
       }
     }
