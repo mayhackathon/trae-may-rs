@@ -31,6 +31,74 @@ function toolText(text) {
   return { content: [{ type: "text", text }] };
 }
 
+function firstNonEmptyLine(text) {
+  for (const line of String(text).split("\n")) {
+    const t = line.trim();
+    if (t) return t;
+  }
+  return "";
+}
+
+function safeSectionLines(text, heading, limit) {
+  const lines = String(text).split("\n");
+  const start = lines.findIndex((l) => l.trim() === heading);
+  if (start === -1) return [];
+
+  const out = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) {
+      if (out.length) break;
+      continue;
+    }
+    if (line.startsWith("- ")) out.push(line.slice(2));
+    else if (out.length) break;
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+function formatTldr(brief) {
+  const firstTitle = firstNonEmptyLine(brief.engineering);
+  const verified = safeSectionLines(brief.audit, "Verified claims (supported by sources)", 3);
+  const uncertainties = safeSectionLines(brief.audit, "Uncertainties / needs verification", 3);
+
+  const out = [];
+  out.push(`TL;DR (${firstTitle || "Ship Brief"})`);
+  out.push("");
+  out.push("Top verified claims");
+  out.push(verified.length ? verified.map((v) => `- ${v}`).join("\n") : "- None found in sources.");
+  out.push("");
+  out.push("Key uncertainties");
+  out.push(
+    uncertainties.length ? uncertainties.map((u) => `- ${u}`).join("\n") : "- None flagged in sources."
+  );
+  return out.join("\n");
+}
+
+function formatFullBriefResponse(payload) {
+  const { generatedAt, brief } = payload;
+  return [
+    "TRAE Ship Brief",
+    `Generated at: ${generatedAt}`,
+    "Sources: local mock JSON (git history, PR summary, ticket context, support notes)",
+    "",
+    formatTldr(brief),
+    "",
+    "Engineering",
+    brief.engineering,
+    "",
+    "PM and Marketing",
+    brief.pmMarketing,
+    "",
+    "Support",
+    brief.support,
+    "",
+    "Audit",
+    brief.audit,
+  ].join("\n");
+}
+
 const server = new Server(
   { name: "trae-ship-brief", version: "0.1.0" },
   {
@@ -108,6 +176,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      {
+        name: "what_shipped_this_week",
+        description:
+          "Return a demo-friendly answer for “What shipped this week?” Retrieves latest brief if present, otherwise generates one.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            baseUrl: {
+              type: "string",
+              description: "Ship Brief app base URL (defaults to SHIP_BRIEF_BASE_URL or http://localhost:3000).",
+            },
+          },
+        },
+      },
     ],
   };
 });
@@ -120,23 +202,49 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   switch (request.params.name) {
     case "generate_ship_brief": {
       const result = await requestJson("POST", endpoint, {});
-      return toolText(JSON.stringify(result, null, 2));
+      return toolText(formatFullBriefResponse(result));
     }
     case "get_latest_brief": {
       const result = await requestJson("GET", endpoint);
-      return toolText(JSON.stringify(result, null, 2));
+      return toolText(
+        [
+          "TRAE Ship Brief (latest)",
+          `Generated at: ${result.generatedAt}`,
+          "Sources: local mock JSON",
+          "",
+          formatTldr(result.brief),
+        ].join("\n")
+      );
     }
     case "get_support_note": {
       const result = await requestJson("GET", endpoint);
-      return toolText(result.brief.support);
+      return toolText(["Source: Ship Brief (mock data)", "", result.brief.support].join("\n"));
     }
     case "get_marketing_summary": {
       const result = await requestJson("GET", endpoint);
-      return toolText(result.brief.pmMarketing);
+      return toolText(["Source: Ship Brief (mock data)", "", result.brief.pmMarketing].join("\n"));
     }
     case "get_audit_report": {
       const result = await requestJson("GET", endpoint);
-      return toolText(result.brief.audit);
+      return toolText(["Source: Ship Brief (mock data)", "", result.brief.audit].join("\n"));
+    }
+    case "what_shipped_this_week": {
+      try {
+        const latest = await requestJson("GET", endpoint);
+        return toolText(
+          [
+            "Here’s what shipped this week (latest brief already generated):",
+            "",
+            formatTldr(latest.brief),
+          ].join("\n")
+        );
+      } catch (e) {
+        if (!(e instanceof Error) || !String(e.message).includes("No brief generated yet.")) throw e;
+        const generated = await requestJson("POST", endpoint, {});
+        return toolText(
+          ["Here’s what shipped this week (generated now):", "", formatTldr(generated.brief)].join("\n")
+        );
+      }
     }
     default:
       throw new Error(`Unknown tool: ${request.params.name}`);
@@ -153,4 +261,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-
