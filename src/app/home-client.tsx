@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Brief = {
   engineering: string;
@@ -103,6 +103,7 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
     setError(null);
     try {
       const res = await fetch("/api/generate-brief", { method: "GET" });
+      if (res.status === 404) return;
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       await applyBriefResponse(res);
     } catch (e) {
@@ -111,6 +112,19 @@ export default function HomeClient({ sourceSummary }: { sourceSummary: SourceSum
       setIsGenerating(false);
     }
   }
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/generate-brief", { method: "GET" });
+        if (res.status === 404) return;
+        if (!res.ok) return;
+        await applyBriefResponse(res);
+      } catch {
+        return;
+      }
+    })();
+  }, []);
 
   async function onCopy(text: string) {
     await navigator.clipboard.writeText(text);

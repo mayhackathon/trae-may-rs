@@ -18,7 +18,7 @@ async function main() {
   const tools = await client.listTools();
   process.stdout.write(`Tools: ${tools.tools.map((t) => t.name).join(", ")}\n`);
 
-  const generated = await client.callTool({ name: "generate_ship_brief", arguments: {} });
+  await client.callTool({ name: "generate_ship_brief", arguments: {} });
   process.stdout.write(`generate_ship_brief ok\n`);
 
   const support = await client.callTool({ name: "get_support_note", arguments: {} });
@@ -40,4 +40,3 @@ main().catch((err) => {
   process.stderr.write(String(err?.stack ?? err) + "\n");
   process.exit(1);
 });
-

@@ -24,6 +24,7 @@ And TRAE can:
 
 In this MVP, TRAE integration is represented by a single app API boundary:
 - POST `/api/generate-brief` produces a single “weekly” brief from the mocked sources
+- GET `/api/generate-brief` retrieves the latest generated brief (persisted locally)
 
 ## Productivity Impact
 
